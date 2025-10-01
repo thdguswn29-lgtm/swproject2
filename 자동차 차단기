@@ -1,0 +1,91 @@
+#include <Servo.h>
+#include <math.h>   // sigmoid 계산용
+
+// 핀 설정
+#define PIN_SERVO 10
+#define TRIG 12
+#define ECHO 13
+
+Servo myServo;
+
+// 서보 각도 범위 (차단기 바 내려간 상태 ↔ 올라간 상태)
+int downAngle = 0;     // 차단기 닫힘 (가로)
+int upAngle   = 110;    // 차단기 열림 (세로)
+
+// 차량 감지 기준 거리 (cm)
+int detectDistance = 20;
+
+// --------------------
+// sigmoid 함수
+// --------------------
+float sigmoid(float x) {
+  return 1.0 / (1.0 + exp(-x));
+}
+
+// --------------------
+// Sigmoid 기반 서보 제어
+// --------------------
+void smoothMoveSigmoid(int from, int to, int duration) {
+  int steps = 50;  // 세밀함 정도
+  for (int i = 0; i <= steps; i++) {
+    float t = (float)i / steps;        // 0 ~ 1
+    float s = sigmoid((t - 0.5) * 10); // sigmoid 스케일 조정
+    float angle = from + (to - from) * s;
+    myServo.write(angle);
+    delay(duration / steps);
+  }
+}
+
+// --------------------
+// Linear 기반 서보 제어
+// --------------------
+void smoothMoveLinear(int from, int to, int duration) {
+  int steps = 50;
+  for (int i = 0; i <= steps; i++) {
+    float t = (float)i / steps;  // 0 ~ 1
+    float angle = from + (to - from) * t;
+    myServo.write(angle);
+    delay(duration / steps);
+  }
+}
+
+// --------------------
+// 초음파 센서 거리 측정
+// --------------------
+long getDistance() {
+  digitalWrite(TRIG, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG, LOW);
+
+  long duration = pulseIn(ECHO, HIGH);
+  long distance = duration * 0.034 / 2; // cm 변환
+  return distance;
+}
+
+void setup() {
+  Serial.begin(9600);
+  pinMode(TRIG, OUTPUT);
+  pinMode(ECHO, INPUT);
+
+  myServo.attach(PIN_SERVO);
+  myServo.write(downAngle); // 처음은 닫힘
+}
+
+void loop() {
+  long distance = getDistance();
+  Serial.print("Distance: ");
+  Serial.println(distance);
+
+  if (distance > 0 && distance < detectDistance) {
+    // 차량 접근 → 차단기 열림
+    Serial.println("Car detected → OPEN");
+    smoothMoveSigmoid(downAngle, upAngle, 2000); // sigmoid 방식으로 열기
+
+    delay(2000); // 차가 지나가는 시간 확보
+
+    Serial.println("Car passed → CLOSE");
+    smoothMoveLinear(upAngle, downAngle, 2000);  // linear 방식으로 닫기
+  }
+}
